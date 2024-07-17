@@ -379,14 +379,25 @@ class SimuChain():
 class QickTrainingSoc(QickSoc, QickConfig):    
 
     # Constructor.
-    def __init__(self, bitfile, force_init_clks=False, ignore_version=True, **kwargs):
+    def __init__(self, bitfile, **kwargs):
         self.logger = logging.getLogger(self.__class__.__name__)
         """
         Constructor method
         """
-        QickSoc.__init__(self, bitfile, force_init_clks=force_init_clks, ignore_version=ignore_version, **kwargs)
+        QickSoc.__init__(self, bitfile, **kwargs)
 
         self.map_local()
+
+        # list of simulator chains
+        self.simu = []
+        for simucfg in self['simu']:
+            adcstr = self._describe_adc(simucfg['analysis']['adc']['id'])
+            dacstr = self._describe_dac(simucfg['synthesis']['dac']['id'])
+            self.simu.append(SimuChain(self, simucfg, adcstr + " -> " + dacstr))
+        if self.simu:
+            self['extra_description'].append("\n\t%d resonator simulator chains:"%(len(self.simu)))
+            for i, simu in enumerate(self.simu):
+                self['extra_description'].append("\t%d:\t%s"%(i, simu.name))
 
         # Add triggers for Kidsim.
         tproccfg = self['tprocs'][0]
@@ -430,8 +441,6 @@ class QickTrainingSoc(QickSoc, QickConfig):
             dac = pfb.dict['dac']['id']
             pfb.configure(self['dacs'][dac]['fs']/self['dacs'][dac]['interpolation'])
 
-        #self['adcs'] = list(self.adcs.keys())
-        #self['dacs'] = list(self.dacs.keys())
         self['analysis'] = []
         self['synthesis'] = []
         self['simu'] = []
@@ -484,4 +493,54 @@ class QickTrainingSoc(QickSoc, QickConfig):
                 if not found:
                     raise RuntimeError("Could not find dual chain for PFB {}".format(ch_a['pfb']))
 
-        return
+    def config_resonator(self, simu_ch=0, q_adc=6, q_dac=0, f=500.0, df=2.0, dt=10.0, c0=0.99, c1=0.8, verbose=False):
+        """Configure the resonator simulator.
+
+        The two qout values truncate the data at different points in the simulator.
+        They affect both the simulator gain and its dynamic range.
+        Smaller values mean more gain, but you might saturate something and your decimated traces will look like garbage.
+        The default values were chosen to avoid saturation at max pulse power (i.e. a gain-1 const pulse).
+
+        Parameters
+        ----------
+        simu_ch : int
+            index of the simulator you want to configure
+        q_adc : int
+            number of bits to truncate at simulator input
+            this basically sets the input's dynamic range
+        q_dac : int
+            number of bits to truncate at simulator output
+            this basically sets the output power
+        f : float
+            resting frequency of the resonator, in MHz
+        df : float
+            size of the frequency jump, in MHz
+            after the jump, the resonator freq will be f-df
+        dt : float
+            jump duration, in us
+            the resonator will jump back to its rest state after this time
+        c0 : float
+            resonator parameter, in the range 0.0 - 1.0
+            roughly speaking, this sets the width scale of the resonator
+        c1 : float
+            resonator parameter, in the range 0.0 - c0
+            roughly speaking, this sets the depth of the resonator minimum
+        """
+        simu = self.simu[simu_ch]
+
+        simu.analysis.qout(q_adc)
+        simu.synthesis.qout(q_dac)
+
+        # Disable all resonators.
+        simu.alloff()
+
+        cfg = {'sel':'resonator', 'nstep':1}
+        cfg['freq'] = f
+        cfg['sweep_freq'] = df
+        cfg['sweep_time'] = dt
+
+        # IIR filter parameters
+        cfg['iir_c0'] = c0
+        cfg['iir_c1'] = c1
+
+        simu.set_resonator(cfg, verbose=verbose)
