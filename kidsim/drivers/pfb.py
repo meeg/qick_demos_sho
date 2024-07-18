@@ -190,33 +190,19 @@ class AbsPfbAnalysis(SocIp):
                     },
                     }
 
-        p0_n = port0[0:3]
-
         # Find adc<->port.
         # IQ on same port.
         if port1 is None:
-            tile = p0_n[1]
-            adc  = p0_n[2]
-            return tile,adc
+            tile, adc = port0[1:3]
+            return tile, adc
 
         # IQ on different ports.
         else:
-            p1_n = port1[0:3]
-
-            # IQ on different ports.
-            for tile in adc_dict.keys():
-                for adc in adc_dict[tile].keys():
-                    # First possibility.
-                    if p0_n == adc_dict[tile][adc]['port 0']:
-                        if p1_n == adc_dict[tile][adc]['port 1']:
-                            return tile,adc
-                    # Second possibility.
-                    if p1_n == adc_dict[tile][adc]['port 0']:
-                        if p0_n == adc_dict[tile][adc]['port 1']:
-                            return tile,adc
-
-        # If I got here, adc not found.
-        raise RuntimeError("Cannot find correspondance with any ADC for ports %s,%s" % (port0,port1))
+            tile0, adc0 = port0[1:3]
+            tile1, adc1 = port1[1:3]
+            if tile0 != tile1 or int(adc0)//2 != int(adc1)//2:
+                raise RuntimeError("Cannot find correspondance with any ADC for ports %s,%s" % (port0,port1))
+            return tile0, adc0
 
     def freq2ch(self,f):
         # Check if frequency is on -fs/2 .. fs/2.

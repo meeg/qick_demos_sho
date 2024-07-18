@@ -78,10 +78,9 @@ class AnalysisChain():
  
     def update_settings(self):
         self.logger.debug("update_settings")
-        tile = int(self.dict['chain']['adc']['tile'])
-        ch = int(self.dict['chain']['adc']['ch'])
-        m_set = self.soc.rf.adc_tiles[tile].blocks[ch].MixerSettings
         id_ = self.dict['chain']['adc']['id']
+        tile, ch = self.soc['adcs'][id_]['index']
+        m_set = self.soc.rf.adc_tiles[tile].blocks[ch].MixerSettings
         self.dict['mixer'] = {
             'mode'     : self.return_key(self.mixer_dict['mode'], m_set['MixerMode']),
             'type'     : self.return_key(self.mixer_dict['type'], m_set['MixerType']),
@@ -222,10 +221,9 @@ class SynthesisChain():
 
     def update_settings(self):
         self.logger.debug("update_settings")
-        tile = int(self.dict['chain']['dac']['tile'])
-        ch = int(self.dict['chain']['dac']['ch'])
-        m_set = self.soc.rf.dac_tiles[tile].blocks[ch].MixerSettings
         id_ = self.dict['chain']['dac']['id']
+        tile, ch = self.soc['dacs'][id_]['index']
+        m_set = self.soc.rf.dac_tiles[tile].blocks[ch].MixerSettings
         self.dict['mixer'] = {
             'mode'     : self.return_key(self.mixer_dict['mode'], m_set['MixerMode']),
             'type'     : self.return_key(self.mixer_dict['type'], m_set['MixerType']),
