@@ -491,6 +491,32 @@ class QickTrainingSoc(QickSoc, QickConfig):
                 if not found:
                     raise RuntimeError("Could not find dual chain for PFB {}".format(ch_a['pfb']))
 
+    def set_attenuation(self, adcname, atten):
+        """Set attenuation on an ADC.
+
+        Parameters
+        ----------
+        adcname : str
+            Two-character ID of the ADC.
+        atten : float
+            Desired attenuation in dB.
+            This will be rounded to int.
+            The valid range is 0 through 27.
+        """
+        tile, block = self['adcs'][adcname]['index']
+        adc = self.rf.adc_tiles[tile].blocks[block]
+        self.logger.info("ADC %s, current attenuation: %f"%(adcname, adc.DSA['Attenuation']))
+        adc.DSA['Attenuation'] = atten
+        self.logger.info("new attenuation: %f"%(adc.DSA['Attenuation']))
+
+    def reset_attenuation(self):
+        """Reset all ADC attenuators to zero.
+        """
+        for rocfg in self['readouts']:
+            self.set_attenuation(rocfg['adc'], 0)
+        for simucfg in self['simu']:
+            self.set_attenuation(simucfg['analysis']['adc']['id'], 0)
+
     def config_resonator(self, simu_ch=0, q_adc=6, q_dac=0, f=500.0, df=2.0, dt=10.0, c0=0.99, c1=0.8, verbose=False):
         """Configure the resonator simulator.
 
