@@ -568,3 +568,30 @@ class QickTrainingSoc(QickSoc, QickConfig):
         cfg['iir_c1'] = c1
 
         simu.set_resonator(cfg, verbose=verbose)
+
+    def disable_resonator(self, simu_ch=0, q_adc=6, q_dac=0, verbose=False):
+        """Disable the resonator simulator, but configure the input and output truncation just like config_resonator.
+
+        The two qout values truncate the data at different points in the simulator.
+        They affect both the simulator gain and its dynamic range.
+        Smaller values mean more gain, but you might saturate something and your decimated traces will look like garbage.
+        The default values were chosen to avoid saturation at max pulse power (i.e. a gain-1 const pulse).
+
+        Parameters
+        ----------
+        simu_ch : int
+            index of the simulator you want to configure
+        q_adc : int
+            number of bits to truncate at simulator input
+            this basically sets the input's dynamic range
+        q_dac : int
+            number of bits to truncate at simulator output
+            this basically sets the output power
+        """
+        simu = self.simu[simu_ch]
+
+        simu.analysis.qout(q_adc)
+        simu.synthesis.qout(q_dac)
+
+        # Disable all resonators.
+        simu.alloff()
