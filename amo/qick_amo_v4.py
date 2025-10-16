@@ -1,11 +1,11 @@
-import sys
-from qick.qick import *
-import time
-import matplotlib.pyplot as plt
+from qick import QickSoc
+from qick.ip import SocIP
+import numpy as np
+from pynq import allocate
 
-class AxisSignalGeneratorAMOV4(SocIp):
-    bindto = ['user.org:user:axis_signal_gen_amo_v4:1.0']
-    REGISTERS = {'memw_start_reg'   : 0}
+class AxisSignalGeneratorAMOV4(SocIP):
+    bindto = ['user.org:user:axis_signal_gen_amo_v4:1.0',
+            'QICK:QICK:axis_signal_gen_amo_v4:1.0']
 
     # Min/max order for frequency modulation.
     FMOD_MIN_ORDER = 0
@@ -31,6 +31,8 @@ class AxisSignalGeneratorAMOV4(SocIp):
         # Initialize ip
         super().__init__(description)
         
+        self.REGISTERS = {'memw_start_reg'   : 0}
+
         # Default registers.
         self.memw_start_reg     = 0 # Don't write.
 
@@ -62,12 +64,12 @@ class AxisSignalGeneratorAMOV4(SocIp):
         self.soc = soc
 
         # Block type.
-        self.cfg['type'] = soc.metadata.mod2type(self.fullpath)
+        self.cfg['type'] = soc.metadata.mod2type(self['fullpath'])
 
         ##################################################
         ### Backward tracing: should finish at the DMA ###
         ##################################################
-        ((block,port),) = soc.metadata.trace_bus(self.fullpath, self.STREAM_IN_DMA_PORT)
+        ((block,port),) = soc.metadata.trace_bus(self['fullpath'], self.STREAM_IN_DMA_PORT)
 
         while True:
             blocktype = soc.metadata.mod2type(block)
@@ -83,12 +85,12 @@ class AxisSignalGeneratorAMOV4(SocIp):
                 self.switch_ch = int(port[1:3])
                 ((block, port),) = soc.metadata.trace_bus(block, 'S00_AXIS')
             else:
-                raise RuntimeError("falied to trace port for %s - unrecognized IP block %s" % (self.fullpath, block))
+                raise RuntimeError("falied to trace port for %s - unrecognized IP block %s" % (self['fullpath'], block))
 
         ####################################################
         ### Backward tracing: should finish at the tProc ###
         ####################################################
-        ((block,port),) = soc.metadata.trace_bus(self.fullpath, self.STREAM_IN_CTRL_PORT)
+        ((block,port),) = soc.metadata.trace_bus(self['fullpath'], self.STREAM_IN_CTRL_PORT)
 
         while True:
             blocktype = soc.metadata.mod2type(block)
@@ -102,12 +104,12 @@ class AxisSignalGeneratorAMOV4(SocIp):
                 pp = "s{}_axis".format(port[1])
                 ((block, port),) = soc.metadata.trace_bus(block, pp)
             else:
-                raise RuntimeError("falied to trace port for %s - unrecognized IP block %s" % (self.fullpath, block))
+                raise RuntimeError("falied to trace port for %s - unrecognized IP block %s" % (self['fullpath'], block))
 
         #################################################
         ### Forward tracing: should finish on the DAC ###
         #################################################
-        ((block,port),) = soc.metadata.trace_bus(self.fullpath, self.STREAM_OUT_PORT)
+        ((block,port),) = soc.metadata.trace_bus(self['fullpath'], self.STREAM_OUT_PORT)
 
         while True:
             blocktype = soc.metadata.mod2type(block)
@@ -116,15 +118,15 @@ class AxisSignalGeneratorAMOV4(SocIp):
                 self.HAS_DAC = True
                 dac = port[1:3]
                 self.cfg['dac'] = dac
-                self.cfg['fs']  = soc.dacs[dac]['fs']/16
+                self.cfg['fs']  = soc['rf']['dacs'][dac]['fs']/16
                 break
             else:
-                raise RuntimeError("falied to trace port for %s - unrecognized IP block %s" % (self.fullpath, block))
+                raise RuntimeError("falied to trace port for %s - unrecognized IP block %s" % (self['fullpath'], block))
 
         #################################################
         ### Forward tracing (AUX): should finish on the DAC ###
         #################################################
-        ((block,port),) = soc.metadata.trace_bus(self.fullpath, self.STREAM_OUT_AUX_PORT)
+        ((block,port),) = soc.metadata.trace_bus(self['fullpath'], self.STREAM_OUT_AUX_PORT)
 
         while True:
             blocktype = soc.metadata.mod2type(block)
@@ -133,12 +135,12 @@ class AxisSignalGeneratorAMOV4(SocIp):
                 self.HAS_AUX = True
                 dac = port[1:3]
                 self.cfg['dac_aux'] = dac
-                self.cfg['fs_aux']  = soc.dacs[dac]['fs']/16
+                self.cfg['fs_aux']  = soc['rf']['dacs'][dac]['fs']/16
                 break
             elif blocktype == "axis_terminator":
                 break
             else:
-                raise RuntimeError("falied to trace port for %s - unrecognized IP block %s" % (self.fullpath, block))
+                raise RuntimeError("falied to trace port for %s - unrecognized IP block %s" % (self['fullpath'], block))
 
         # Configure block.
         self.configure()
@@ -567,8 +569,19 @@ class AxisSignalGeneratorAMOV4(SocIp):
             self.alloff(addr = i)
 
 class QickAmoSoc(QickSoc):
-    def __init__(self, bitfile=None, force_init_clks=False,ignore_version=True, **kwargs):
-        QickSoc.__init__(self, bitfile=bitfile, force_init_clks=force_init_clks, ignore_version=ignore_version, **kwargs)
+    def __init__(self, bitfile=None, **kwargs):
+        super().__init__(bitfile=bitfile, **kwargs)
+
+        lines = ["\nAMO generators:"]
+        # Signal Generators.
+        for iGen, gen in enumerate(self.gens):
+            if gen['type'] == "axis_signal_gen_amo_v4":
+                lines.append("\t%d:\t%s - tProc output %d, NDDS = %d, parameter memory %d" %(iGen,gen['type'], gen['tproc_ch'], gen.NDDS, gen.MEM_LENGTH))
+                lines.append("\t\tfs = %.3f MHz, df = %.3f kHz, min sweep = %.3f us" % (gen['fs'], 1000*gen.cfg['df'],gen.cfg['SWEEP_TIME_US']))
+                lines.append("\t\tMain output: %s" % (self._describe_dac(gen['dac'])))
+                if gen.HAS_AUX:
+                    lines.append("\t\tAux output: %s" % (self._describe_dac(gen['dac_aux'])))
+        self['extra_description'].extend(lines)
         
     # Extend map_signal_paths.
     def map_signal_paths(self):
@@ -580,63 +593,5 @@ class QickAmoSoc(QickSoc):
             if val['driver'] == AxisSignalGeneratorAMOV4:
                 self.gens.append(getattr(self,key))
 
-    # Replace description to add AMO generators.
-    def description(self):
-        tproc = self['tprocs'][0]
         
-        lines = []
-        lines.append("\n\tBoard: " + self['board'])
-        lines.append("\n\tSoftware version: " + self['sw_version'])
-        lines.append("\tFirmware timestamp: " + self['fw_timestamp'])
-        lines.append("\n\tGlobal clocks (MHz): tProcessor %.3f, RF reference %.3f" % (
-            tproc['f_time'], self['refclk_freq']))
-        
-        # Signal Generators.
-        lines.append("\n\t%d signal generator channels:" % (len(self.gens)))
-        for iGen, gen in enumerate(self.gens):
-            if gen['type'] == "axis_signal_gen_amo_v4":
-                lines.append("\t%d:\t%s - tProc output %d, NDDS = %d, parameter memory %d" %(iGen,gen['type'], gen['tproc_ch'], gen.NDDS, gen.MEM_LENGTH))
-                lines.append("\t\tDAC tile %d, blk %d, fs = %.3f MHz, df = %.3f kHz, min sweep = %.3f us" % (int(gen['dac'][0]), int(gen['dac'][1]), gen['fs'], 1000*gen.cfg['df'],gen.cfg['SWEEP_TIME_US']))
-                if gen.HAS_AUX:
-                    lines.append("\t\tDAC tile %d, blk %d: Auxiliary Output" % (int(gen['dac_aux'][0]), int(gen['dac_aux'][1])))
-            else:
-                lines.append("\t%d:\t%s - tProc output %d, envelope memory %d samples" %
-                             (iGen, gen['type'], gen['tproc_ch'], gen['maxlen']))
-                lines.append("\t\tDAC tile %s, blk %s, %d-bit DDS, fabric=%.3f MHz, f_dds=%.3f MHz" %
-                             (*gen['dac'], gen['b_dds'], gen['f_fabric'], gen['f_dds']))
-        
-        lines.append("\n\t%d DACs:" % (len(self['dacs'])))
-        for dac in self['dacs']:
-            tile, block = [int(c) for c in dac]
-            if self['board']=='ZCU111':
-                label = "DAC%d_T%d_CH%d or RF board output %d" % (tile + 228, tile, block, tile*4 + block)
-            elif self['board']=='ZCU216':
-                label = "%d_%d, on JHC%d" % (block, tile + 228, 1 + (block%2) + 2*(tile//2))
-            elif self['board']=='RFSoC4x2':
-                label = {'00': 'DAC_B', '20': 'DAC_A'}[dac]
-            lines.append("\t\tDAC tile %d, blk %d is %s" %
-                         (tile, block, label))
-        
-        lines.append("\n\t%d ADCs:" % (len(self['adcs'])))
-        for adc in self['adcs']:
-            tile, block = [int(c) for c in adc]
-            if self['board']=='ZCU111':
-                rfbtype = "DC" if tile > 1 else "AC"
-                label = "ADC%d_T%d_CH%d or RF board %s input %d" % (tile + 224, tile, block, rfbtype, (tile%2)*2 + block)
-            elif self['board']=='ZCU216':
-                label = "%d_%d, on JHC%d" % (block, tile + 224, 5 + (block%2) + 2*(tile//2))
-            elif self['board']=='RFSoC4x2':
-                label = {'00': 'ADC_D', '01': 'ADC_C', '20': 'ADC_B', '21': 'ADC_A'}[adc]
-            lines.append("\t\tADC tile %d, blk %d is %s" %
-                         (tile, block, label))
-        
-        lines.append("\n\t%d digital output pins:" % (len(tproc['output_pins'])))
-        for iPin, (porttype, port, pin, name) in enumerate(tproc['output_pins']):
-            lines.append("\t%d:\t%s (%s %d, pin %d)" % (iPin, name, porttype, port, pin))
-        
-        lines.append("\n\ttProc %s: program memory %d words, data memory %d words" %
-                (tproc['type'], tproc['pmem_size'], tproc['dmem_size']))
-        lines.append("\t\texternal start pin: %s" % (tproc['start_pin']))
-        
-        return "\nQICK configuration:\n"+"\n".join(lines)
 
